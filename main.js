@@ -9,24 +9,37 @@ THREE.Cache.enabled = true;
 
 let container;
 
+let text;
+
 let camera, cameraTarget, scene, renderer;
 
 let group, textMesh1, textMesh2, textGeo, materials, background;
 
+const min_width = 60;
+const min_height = 80;
+
 let firstLetter = true;
 
-let messages = [["Q", "E"], ["m", "l"]],
+let message_sender = [0, 0, 1, 1];
+
+let heights = [-400];
+
+
+let scroll_location = 0;
+let window_height = 500;
+
+
+let messages = ["Q", "E", "m", "l"],
 
 	bevelEnabled = true,
 
 	font = undefined,
 
-	fontName = 'optimer', // helvetiker, optimer, gentilis, droid sans, droid serif
+	fontName = 'gentilis', // helvetiker, optimer, gentilis, droid sans, droid serif
 	fontWeight = 'bold'; // normal bold
 
 const height = 20,
-	size = 70,
-	hover = 30,
+	size = 20,
 
 	curveSegments = 4,
 
@@ -107,6 +120,7 @@ function init() {
 
 	group = new THREE.Group();
 	group.position.y = 100;
+	group.position.x = - ( 0.2 * window.innerWidth );
 
 	scene.add( group );
 
@@ -122,7 +136,7 @@ function init() {
 	// EVENTS
 
 	container.style.touchAction = 'none';
-	container.addEventListener( 'pointerdown', onPointerDown );
+	document.addEventListener( 'pointermove', onPointerMove );
 
 	document.addEventListener( 'keypress', onDocumentKeyPress );
 	document.addEventListener( 'keydown', onDocumentKeyDown );
@@ -219,6 +233,12 @@ function onDocumentKeyDown( event ) {
 
 		return false;
 
+	} else if ( keyCode == 13 && text.length != 0) { 
+	    event.preventDefault();
+	    addMessage(text, 0); 
+	    text = "";
+	    firstLetter = true;   
+	    refreshText();
 	}
 
 }
@@ -233,6 +253,10 @@ function onDocumentKeyPress( event ) {
 
 		event.preventDefault();
 
+	} else if ( keyCode == 13 ) {
+	 
+	    event.preventDefault(); 
+	    
 	} else {
 
 		const ch = String.fromCharCode( keyCode );
@@ -311,14 +335,18 @@ function createText(text, location, render_background) {
 	} );
 
 	textGeo.computeBoundingBox();
-
-	const centerOffset = - 0.5 * ( textGeo.boundingBox.max.x - textGeo.boundingBox.min.x );
+    
+    let box_width = textGeo.boundingBox.max.x - textGeo.boundingBox.min.x;
+    let box_height = textGeo.boundingBox.max.y - textGeo.boundingBox.min.y;
+    
+	const centerOffset = - 0.5 * ( box_width );
+	heights.push(heights[heights.length - 1] + box_height);
 
 	textMesh1 = new THREE.Mesh( textGeo, materials );
 
-	textMesh1.position.x = location[0] + centerOffset;
-	textMesh1.position.y = location[1] + - 0.3 * ( textGeo.boundingBox.max.y - textGeo.boundingBox.min.y );
-	textMesh1.position.z = location[2];
+	textMesh1.position.x = location[0];
+	textMesh1.position.y = location[1];
+	textMesh1.position.z = location[2] - 18;
 
 	textMesh1.rotation.x = 0;
 	textMesh1.rotation.y = Math.PI * 2;
@@ -326,7 +354,7 @@ function createText(text, location, render_background) {
 	group.add( textMesh1 );
 	
 	renderBackground(
-	    [(textGeo.boundingBox.max.x - textGeo.boundingBox.min.x) * 1.1, (textGeo.boundingBox.max.y - textGeo.boundingBox.min.y) * 1.1],
+	    [(textGeo.boundingBox.max.x - textGeo.boundingBox.min.x) + 10, (textGeo.boundingBox.max.y - textGeo.boundingBox.min.y) + 10],
 	    location
 	)
 
@@ -354,25 +382,10 @@ function refreshText() {
 	if ( mirror ) group.remove( textMesh2 );
 
 	if ( ! messages ) return;
-
-    for (let i = 0; i < messages[0].length; i++) {
-        createText(messages[0][i], [0, (messages[0].length - i) * 100, 0]);
-    }
-	for (let i = 0; i < messages[1].length; i++) {
-        createText(messages[1][i], [100, (messages[1].length - i) * 100, 0]);
-    }
-}
-
-function onPointerDown( event ) {
-
-	if ( event.isPrimary === false ) return;
-
-	pointerXOnPointerDown = event.clientX - windowHalfX;
-	targetRotationOnPointerDown = targetRotation;
-
-	document.addEventListener( 'pointermove', onPointerMove );
-	document.addEventListener( 'pointerup', onPointerUp );
-
+	
+	for (let i = 0; i < messages.length; i++) {
+	    createText(messages[i], [message_sender[i] * 100, heights[i], 0]);
+	}
 }
 
 function onPointerMove( event ) {
@@ -385,13 +398,10 @@ function onPointerMove( event ) {
 
 }
 
-function onPointerUp() {
-
-	if ( event.isPrimary === false ) return;
-
-	document.removeEventListener( 'pointermove', onPointerMove );
-	document.removeEventListener( 'pointerup', onPointerUp );
-
+function onScroll( event ) {
+    if (event.isPrimary === false ) return;
+    
+        
 }
 
 //
@@ -406,12 +416,12 @@ function animate() {
 
 function renderBackground(mesh_size, location) {
     background = new THREE.Mesh(
-        RectangleRounded(mesh_size[0], mesh_size[1], 25, 10),
+        RectangleRounded(Math.max(mesh_size[0], min_width), Math.max(mesh_size[1], min_height), 25, 10),
         new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.FrontSide} ) 
     );
     
-    background.position.x = location[0];
-    background.position.y = location[1];
+    background.position.x = location[0] + 0.5 * mesh_size[0];
+    background.position.y = location[1] + 0.5 * mesh_size[1];
     background.position.z = location[2];
 
     background.rotation.x = 0;
@@ -420,9 +430,17 @@ function renderBackground(mesh_size, location) {
     group.add( background );
 }
 
+
+function addMessage(message_text, sender) {
+    message_sender.push(sender);
+    messages.push(message_text);
+}
+
+
 function render() {
 
-	group.rotation.y += ( targetRotation - group.rotation.y ) * 0.05;
+	group.rotation.y = Math.min(Math.max(( targetRotation / 23 - group.rotation.y ) * 0.05, -0.1), 0.1);
+
 
 	camera.lookAt( cameraTarget );
 
