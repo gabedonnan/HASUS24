@@ -2,11 +2,17 @@ import * as THREE from 'three';
 
 import { FontLoader } from 'three/addons/loaders/FontLoader.js';
 import { TextGeometry } from 'three/addons/geometries/TextGeometry.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
 THREE.Cache.enabled = true;
 
+const glob_rng = splitmix32(new Date().getTime());
 
 let sender_colour = 0x0000ff;
 let other_colour = 0xffffff;
@@ -18,7 +24,18 @@ let current_sender = 0;
 
 let container;
 
+let render_scene, bloom_pass, bloom_composer, mix_pass, output_pass, final_composer;
+
 let text;
+
+let strip_count;
+let strip_angles = [];
+let strip_distances = [];
+let strip_ys = [];
+let strip_widths = [];
+let strip_vels = [];
+let strip_length = 10000;
+let strips = [];
 
 let camera, cameraTarget, scene, renderer;
 
@@ -29,7 +46,7 @@ const message_row_height = 60;
 
 let firstLetter = true;
 
-let message_sender = [0, 0, 1, 1];
+let message_sender = [];
 
 let heights = [400];
 
@@ -38,7 +55,7 @@ let scroll_location = 0;
 let window_height = 500;
 
 
-let messages = ["Q", "E", "m", "l"],
+let messages = [],
 
 	bevelEnabled = true,
 
@@ -55,7 +72,22 @@ const height = 20,
 	bevelThickness = 2,
 	bevelSize = 1.5;
 
-const mirror = false;
+// Initialise bloom stuff
+
+const BLOOM_SCENE = 1;
+
+const bloomLayer = new THREE.Layers();
+bloomLayer.set( BLOOM_SCENE );
+const stored_materials = {};
+
+const params = {
+	threshold: 0,
+	strength: 1,
+	radius: 0.5,
+	exposure: 1
+};
+
+const darkMaterial = new THREE.MeshBasicMaterial( { color: 'black' } );
 
 const fontMap = {
 
@@ -139,21 +171,103 @@ function init() {
 
 	renderer = new THREE.WebGLRenderer( { antialias: true } );
 	renderer.setPixelRatio( window.devicePixelRatio );
+	renderer.toneMapping = THREE.ReinhardToneMapping;
 	renderer.setSize( window.innerWidth, window.innerHeight );
+
 	container.appendChild( renderer.domElement );
 
 	// EVENTS
 
 	container.style.touchAction = 'none';
 	document.addEventListener( 'pointermove', onPointerMove );
+	document.addEventListener( 'wheel', onScroll );
 
 	document.addEventListener( 'keypress', onDocumentKeyPress );
 	document.addEventListener( 'keydown', onDocumentKeyDown );
 
-	//
-
 	window.addEventListener( 'resize', onWindowResize );
+	
+	// Rendering
+	
+    render_scene = new RenderPass( scene, camera );
+    
+    bloom_pass = new UnrealBloomPass( new THREE.Vector2( window.innerWidth, window.innerHeight ), 1.5, 0.4, 0.85 );
+	bloom_pass.threshold = params.threshold;
+	bloom_pass.strength = params.strength;
+	bloom_pass.radius = params.radius;
 
+    bloom_composer = new EffectComposer( renderer );
+	bloom_composer.renderToScreen = false;
+	bloom_composer.addPass( render_scene );
+	bloom_composer.addPass( bloom_pass );
+	
+	mix_pass = new ShaderPass(
+		new THREE.ShaderMaterial( {
+			uniforms: {
+				baseTexture: { value: null },
+				bloomTexture: { value: bloom_composer.renderTarget2.texture }
+			},
+			vertexShader: document.getElementById( 'vertexshader' ).textContent,
+			fragmentShader: document.getElementById( 'fragmentshader' ).textContent,
+			defines: {}
+		} ), 'baseTexture'
+	);
+	
+	output_pass = new OutputPass();
+	
+	final_composer = new EffectComposer( renderer );
+	final_composer.addPass( render_scene );
+	final_composer.addPass( mix_pass );
+	final_composer.addPass( output_pass );
+	
+	// strips
+	
+	generateStrips();
+	
+	for (let i = 0; i < strip_count; i++) {
+	    let strip_material = new THREE.ShaderMaterial({
+          uniforms: {
+            color1: {
+              value: new THREE.Color(getRandomInt(0x00000f, 0xffffff, glob_rng))
+            },
+            color2: {
+              value: new THREE.Color(getRandomInt(0x00000f, 0xffffff, glob_rng))
+            }
+          },
+          vertexShader: `
+            varying vec2 vUv;
+
+            void main() {
+              vUv = uv;
+              gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+            }
+          `,
+          fragmentShader: `
+            uniform vec3 color1;
+            uniform vec3 color2;
+          
+            varying vec2 vUv;
+            
+            void main() {
+              
+              gl_FragColor = vec4(mix(color1, color2, vUv.y), 1.0);
+            }
+          `,
+          wireframe: false
+        });
+        let strip_geom = new THREE.PlaneGeometry(strip_widths[i], strip_length);
+        let strip = new THREE.Mesh(strip_geom, strip_material);
+        strip.layers.enable(1);
+        
+        strip.rotation.z = strip_angles[i];
+        strip.rotation.y = Math.PI * 2;
+        
+        strip.position.y = strip_ys[i];
+        strip.position.z = strip_distances[i];
+        
+        strips.push(strip);
+        scene.add(strip);
+    }
 }
 
 function onWindowResize() {
@@ -244,43 +358,6 @@ function loadFont() {
 
 }
 
-function RectangleRounded( w, h, r, s ) { // width, height, radiusCorner, smoothness
-    
-    const pi2 = Math.PI * 2;
-    const n = ( s + 1 ) * 4; // number of segments    
-    let indices = [];
-    let positions = [];
- 	let uvs = [];   
-    let qu, sgx, sgy, x, y;
-    
-	for ( let j = 1; j < n + 1; j ++ ) indices.push( 0, j, j + 1 ); // 0 is center
-    indices.push( 0, n, 1 );   
-    positions.push( 0, 0, 0 ); // rectangle center
-    uvs.push( 0.5, 0.5 );   
-    for ( let j = 0; j < n ; j ++ ) contour( j );
-    
-    const geometry = new THREE.BufferGeometry( );
-    geometry.setIndex( new THREE.BufferAttribute( new Uint32Array( indices ), 1 ) );
-	geometry.setAttribute( 'position', new THREE.BufferAttribute( new Float32Array( positions ), 3 ) );
-	geometry.setAttribute( 'uv', new THREE.BufferAttribute( new Float32Array( uvs ), 2 ) );
-    
-    return geometry;
-    
-    function contour( j ) {
-        
-        qu = Math.trunc( 4 * j / n ) + 1 ;      // quadrant  qu: 1..4         
-        sgx = ( qu === 1 || qu === 4 ? 1 : -1 ) // signum left/right
-        sgy =  qu < 3 ? 1 : -1;                 // signum  top / bottom
-        x = sgx * ( w / 2 - r ) + r * Math.cos( pi2 * ( j - qu + 1 ) / ( n - 4 ) ); // corner center + circle
-        y = sgy * ( h / 2 - r ) + r * Math.sin( pi2 * ( j - qu + 1 ) / ( n - 4 ) );   
- 
-        positions.push( x, y, 0 );       
-        uvs.push( 0.5 + x / w, 0.5 + y / h );       
-        
-    }
-    
-}
-
 function createText(text, location, render_background, reverse) {
 
 	textGeo = new TextGeometry( text, {
@@ -298,11 +375,14 @@ function createText(text, location, render_background, reverse) {
 	} );
 
 	textGeo.computeBoundingBox();
+	
+	let num_rows = getNumRows(text);
     
     let box_width = textGeo.boundingBox.max.x - textGeo.boundingBox.min.x;
 
 	const centerOffset = - 0.5 * ( box_width );
-	heights.push((heights[heights.length - 1] - message_row_height) - 5);
+	
+	heights.push((heights[heights.length - 1] - (message_row_height * (num_rows + 1))) - 5) ;
 
 	textMesh1 = new THREE.Mesh( textGeo, materials );
     
@@ -319,17 +399,27 @@ function createText(text, location, render_background, reverse) {
 
 	group.add( textMesh1 );
 	
+	
+	
 	renderBackground(
-	    [(textGeo.boundingBox.max.x - textGeo.boundingBox.min.x), (textGeo.boundingBox.max.y - textGeo.boundingBox.min.y)],
+	    [box_width, message_row_height * num_rows],
 	    location,
-	    reverse
+	    reverse,
+	    getNumRows(text)
 	)
 }
 
 function refreshText() {
-
-	group.remove( textMesh1 );
-	group.remove( background );
+	
+	console.log(group.children);
+	
+	for (let i = 0; i < group.children.length; i++) {
+	    group.children[i].clear();
+	}
+	
+	group.clear();
+	
+	
 
 	if ( ! messages ) return;
 	
@@ -356,7 +446,14 @@ function onPointerMove( event ) {
 function onScroll( event ) {
     if (event.isPrimary === false ) return;
     
-        
+    for (let i = 0; i < strip_count; i++) {
+        strips[i].position.x += (strip_vels[i][0] - 7.5) * event.deltaY * 0.002 ;
+        strips[i].position.y += (strip_vels[i][1] - 12.5) * event.deltaY * 0.002 ;
+        strips[i].position.z += (strip_vels[i][2] - 2.5) * event.deltaY * 0.002 ;
+        strips[i].rotation.z += event.deltaY * 0.0002;
+    }
+    
+    camera.position.y -= event.deltaY * 0.2;    
 }
 
 //
@@ -369,9 +466,11 @@ function animate() {
 
 }
 
-function renderBackground(mesh_size, location, msg_sender) {
-    const mesh_x = Math.max(mesh_size[0] + 20, min_width);
-    const mesh_y = Math.max(mesh_size[1] + 20, message_row_height);
+function renderBackground(mesh_size, location, msg_sender, num_rows) {
+    const rng = splitmix32(mesh_size[0] * mesh_size[1] + msg_sender + num_rows);
+    
+    const mesh_x = Math.max(mesh_size[0], min_width);
+    const mesh_y = Math.max(mesh_size[1], message_row_height);
     let background_colour;
     
     if (msg_sender) {
@@ -380,21 +479,42 @@ function renderBackground(mesh_size, location, msg_sender) {
         background_colour = other_colour;
     }
     
-    background = new THREE.Mesh(
-        RectangleRounded(mesh_x, mesh_y, 25, 10),
-        new THREE.MeshBasicMaterial( {color: background_colour, side: THREE.FrontSide} ) 
-    );
+    let bg_group = new THREE.Group();
     
-    background.position.x = location[0] + 0.5 * mesh_x - 15;
-    background.position.y = location[1] + 0.5 * mesh_y - 15;
-    background.position.z = location[2];
+    const num_bubbles = getRandomInt(8, 12, rng)
+    for (let i = 0; i < num_bubbles; i++) {
+        background = new THREE.Mesh(
+            new THREE.CircleGeometry(getRandomInt(2, 18, rng), 32),
+            new THREE.MeshBasicMaterial( {color: getRandomInt(0x00000f, 0xffffff, rng), side: THREE.FrontSide} ) 
+        );
+        background.position.x = getRandomInt(location[0],location[0] + 0.5 * mesh_x, rng);
+        background.position.y = getRandomInt(location[1],location[1] + 0.5 * mesh_y, rng) - num_rows * message_row_height;
+        background.position.z = location[2] - 10 * getRandomInt(0, 40, rng);
 
-    background.rotation.x = 0;
-    background.rotation.y = Math.PI * 2;
+        background.rotation.x = 0;
+        background.rotation.y = Math.PI * 2;
+        background.layers.enable(1);
+        bg_group.add(background);
+    } 
     
-    group.add( background );
+    bg_group.layers.enable(1);
+    group.add( bg_group );
 }
 
+function getRandomInt(min, max, rng) {
+    min = Math.ceil(min);
+    max = Math.floor(max);
+    return Math.floor(rng() * (max - min + 1)) + min;
+}
+
+function splitmix32(a) {
+    return function() {
+      a |= 0; a = a + 0x9e3779b9 | 0;
+      var t = a ^ a >>> 16; t = Math.imul(t, 0x21f0aaad);
+          t = t ^ t >>> 15; t = Math.imul(t, 0x735a2d97);
+      return ((t = t ^ t >>> 15) >>> 0) / 4294967296;
+    }
+}
 
 function addMessage(message_text, sender) {
     message_sender.push(sender);
@@ -402,17 +522,56 @@ function addMessage(message_text, sender) {
 }
 
 const wrap = (s) => s.replace(
-    /(?![^\n]{1,32}$)([^\n]{1,32})\s/g, '$1\n'
+    /(?![^\n]{1,10}$)([^\n]{1,10})\s/g, '$1\n'
 );
+
+
+function getNumRows(s) {
+    return (s.split("\n").length - 1);
+}
+
+function darkenNonBloomed( obj ) {
+
+	if ( obj.isMesh && bloomLayer.test( obj.layers ) === false ) {
+
+		stored_materials[ obj.uuid ] = obj.material;
+		obj.material = darkMaterial;
+
+	}
+
+}
+
+function restoreMaterial( obj ) {
+
+	if ( stored_materials[ obj.uuid ] ) {
+
+		obj.material = stored_materials[ obj.uuid ];
+		delete stored_materials[ obj.uuid ];
+
+	}
+
+}
+
+function generateStrips() {
+    
+    strip_count = getRandomInt(5, 8, glob_rng);
+    for (let i = 0; i < strip_count; i++) {
+        strip_angles.push(getRandomInt(0, 100, glob_rng));
+        strip_ys.push(getRandomInt(0, 1000, glob_rng));
+        strip_distances.push(-getRandomInt(600, 1500, glob_rng));
+        strip_vels.push([getRandomInt(5, 10, glob_rng),getRandomInt(10, 15, glob_rng), getRandomInt(0, 5, glob_rng)]);
+        strip_widths.push(getRandomInt(5, 10, glob_rng));
+    }
+}
 
 function render() {
 
 	group.rotation.y = Math.min(Math.max(( targetRotation / 23 - group.rotation.y ) * 0.05, -0.1), 0.1);
 
-
-	camera.lookAt( cameraTarget );
-
-	renderer.clear();
-	renderer.render( scene, camera );
+    scene.traverse( darkenNonBloomed );
+    bloom_composer.render();
+    scene.traverse( restoreMaterial );
+    
+    final_composer.render();
 
 }
