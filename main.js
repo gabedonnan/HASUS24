@@ -7,6 +7,15 @@ import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
 THREE.Cache.enabled = true;
 
+
+let sender_colour = 0x0000ff;
+let other_colour = 0xffffff;
+
+let right_limit = window.innerWidth * 0.3;
+let left_limit = 100;
+
+let current_sender = 0;
+
 let container;
 
 let text;
@@ -15,14 +24,14 @@ let camera, cameraTarget, scene, renderer;
 
 let group, textMesh1, textMesh2, textGeo, materials, background;
 
-const min_width = 60;
-const min_height = 80;
+const min_width = 50;
+const message_row_height = 60;
 
 let firstLetter = true;
 
 let message_sender = [0, 0, 1, 1];
 
-let heights = [-400];
+let heights = [400];
 
 
 let scroll_location = 0;
@@ -143,57 +152,6 @@ function init() {
 
 	//
 
-	const params = {
-		changeColor: function () {
-
-			pointLight.color.setHSL( Math.random(), 1, 0.5 );
-
-		},
-		changeFont: function () {
-
-			fontIndex ++;
-
-			fontName = reverseFontMap[ fontIndex % reverseFontMap.length ];
-
-			loadFont();
-
-		},
-		changeWeight: function () {
-
-			if ( fontWeight === 'bold' ) {
-
-				fontWeight = 'regular';
-
-			} else {
-
-				fontWeight = 'bold';
-
-			}
-
-			loadFont();
-
-		},
-		changeBevel: function () {
-
-			bevelEnabled = ! bevelEnabled;
-
-			refreshText();
-
-		}
-	};
-
-	//
-
-	const gui = new GUI();
-
-	gui.add( params, 'changeColor' ).name( 'change color' );
-	gui.add( params, 'changeFont' ).name( 'change font' );
-	gui.add( params, 'changeWeight' ).name( 'change weight' );
-	gui.add( params, 'changeBevel' ).name( 'change bevel' );
-	gui.open();
-
-	//
-
 	window.addEventListener( 'resize', onWindowResize );
 
 }
@@ -235,7 +193,12 @@ function onDocumentKeyDown( event ) {
 
 	} else if ( keyCode == 13 && text.length != 0) { 
 	    event.preventDefault();
-	    addMessage(text, 0); 
+	    addMessage(wrap(text), current_sender);
+	    if (current_sender == 0) {
+	        current_sender = 1;
+	    } else {
+	        current_sender = 0;
+	    }
 	    text = "";
 	    firstLetter = true;   
 	    refreshText();
@@ -318,7 +281,7 @@ function RectangleRounded( w, h, r, s ) { // width, height, radiusCorner, smooth
     
 }
 
-function createText(text, location, render_background) {
+function createText(text, location, render_background, reverse) {
 
 	textGeo = new TextGeometry( text, {
 
@@ -337,13 +300,16 @@ function createText(text, location, render_background) {
 	textGeo.computeBoundingBox();
     
     let box_width = textGeo.boundingBox.max.x - textGeo.boundingBox.min.x;
-    let box_height = textGeo.boundingBox.max.y - textGeo.boundingBox.min.y;
-    
+
 	const centerOffset = - 0.5 * ( box_width );
-	heights.push(heights[heights.length - 1] + box_height);
+	heights.push((heights[heights.length - 1] - message_row_height) - 5);
 
 	textMesh1 = new THREE.Mesh( textGeo, materials );
-
+    
+    if (reverse) {
+        location[0] -= box_width;
+    }
+    
 	textMesh1.position.x = location[0];
 	textMesh1.position.y = location[1];
 	textMesh1.position.z = location[2] - 18;
@@ -354,37 +320,26 @@ function createText(text, location, render_background) {
 	group.add( textMesh1 );
 	
 	renderBackground(
-	    [(textGeo.boundingBox.max.x - textGeo.boundingBox.min.x) + 10, (textGeo.boundingBox.max.y - textGeo.boundingBox.min.y) + 10],
-	    location
+	    [(textGeo.boundingBox.max.x - textGeo.boundingBox.min.x), (textGeo.boundingBox.max.y - textGeo.boundingBox.min.y)],
+	    location,
+	    reverse
 	)
-
-	if ( mirror ) {
-
-		textMesh2 = new THREE.Mesh( textGeo, materials );
-
-		textMesh2.position.x = centerOffset;
-		textMesh2.position.y = - hover;
-		textMesh2.position.z = height;
-
-		textMesh2.rotation.x = Math.PI;
-		textMesh2.rotation.y = Math.PI * 2;
-
-		group.add( textMesh2 );
-
-	}
-
 }
 
 function refreshText() {
 
 	group.remove( textMesh1 );
 	group.remove( background );
-	if ( mirror ) group.remove( textMesh2 );
 
 	if ( ! messages ) return;
 	
 	for (let i = 0; i < messages.length; i++) {
-	    createText(messages[i], [message_sender[i] * 100, heights[i], 0]);
+	    if (message_sender[i] == 0) {
+	        createText(messages[i], [right_limit, heights[i], 0], true, true);
+	    } else {
+	        createText(messages[i], [left_limit, heights[i], 0], true, false);
+	    }
+	    
 	}
 }
 
@@ -414,14 +369,24 @@ function animate() {
 
 }
 
-function renderBackground(mesh_size, location) {
+function renderBackground(mesh_size, location, msg_sender) {
+    const mesh_x = Math.max(mesh_size[0] + 20, min_width);
+    const mesh_y = Math.max(mesh_size[1] + 20, message_row_height);
+    let background_colour;
+    
+    if (msg_sender) {
+        background_colour = sender_colour;
+    } else {
+        background_colour = other_colour;
+    }
+    
     background = new THREE.Mesh(
-        RectangleRounded(Math.max(mesh_size[0], min_width), Math.max(mesh_size[1], min_height), 25, 10),
-        new THREE.MeshBasicMaterial( {color: 0xffffff, side: THREE.FrontSide} ) 
+        RectangleRounded(mesh_x, mesh_y, 25, 10),
+        new THREE.MeshBasicMaterial( {color: background_colour, side: THREE.FrontSide} ) 
     );
     
-    background.position.x = location[0] + 0.5 * mesh_size[0];
-    background.position.y = location[1] + 0.5 * mesh_size[1];
+    background.position.x = location[0] + 0.5 * mesh_x - 15;
+    background.position.y = location[1] + 0.5 * mesh_y - 15;
     background.position.z = location[2];
 
     background.rotation.x = 0;
@@ -436,6 +401,9 @@ function addMessage(message_text, sender) {
     messages.push(message_text);
 }
 
+const wrap = (s) => s.replace(
+    /(?![^\n]{1,32}$)([^\n]{1,32})\s/g, '$1\n'
+);
 
 function render() {
 
