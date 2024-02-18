@@ -14,6 +14,10 @@ THREE.Cache.enabled = true;
 
 const glob_rng = splitmix32(new Date().getTime());
 
+const raycaster = new THREE.Raycaster();
+let char_pos = new THREE.Vector3(0, 0, 0);
+const pointer = new THREE.Vector2(0, 0);
+
 let sender_colour = 0x0000ff;
 let other_colour = 0xffffff;
 
@@ -29,6 +33,9 @@ let container;
 let render_scene, bloom_pass, bloom_composer, mix_pass, output_pass, final_composer;
 
 let text;
+let add_flag = false;
+
+let txt_group;
 
 let strip_count;
 let strip_angles = [];
@@ -38,23 +45,31 @@ let strip_widths = [];
 let strip_vels = [];
 let strip_length = 10000;
 let strips = [];
+let explosion_counter = 1000;
 
 let camera, cameraTarget, scene, renderer;
 
 let group, textMesh1, textMesh2, textGeo, materials, background;
 
 const min_width = 50;
-const message_row_height = 60;
+const message_row_height = 25;
 
 let firstLetter = true;
 
 let message_sender = [];
 
-let heights = [400];
+let heights = [150];
 
 
 let scroll_location = 0;
 let window_height = 500;
+
+let min_camera_y_position = 400;
+
+
+let g = -10;
+let moving_arr = [];
+let velocity_arr = [];
 
 
 let messages = [],
@@ -137,13 +152,11 @@ function init() {
 	camera = new THREE.PerspectiveCamera( 30, window.innerWidth / window.innerHeight, 1, 1500 );
 	camera.position.set( 0, 400, 700 );
 
-	cameraTarget = new THREE.Vector3( 0, 150, 0 );
-
 	// SCENE    
 
 	scene = new THREE.Scene();
 	scene.background = new THREE.Color( 0x000000 );
-	scene.fog = new THREE.Fog( 0x000000, 250, 1400 );
+	// scene.fog = new THREE.Fog( 0x000000, 250, 1400 );
 
 	// LIGHTS
 
@@ -182,6 +195,7 @@ function init() {
 
 	container.style.touchAction = 'none';
 	document.addEventListener( 'pointermove', onPointerMove );
+	document.addEventListener( 'click', onClick );
 	document.addEventListener( 'wheel', onScroll );
 
 	document.addEventListener( 'keypress', onDocumentKeyPress );
@@ -270,6 +284,8 @@ function init() {
         strips.push(strip);
         scene.add(strip);
     }
+    
+
 }
 
 function onWindowResize() {
@@ -294,7 +310,7 @@ function onDocumentKeyDown( event ) {
 
 	}
 
-	const keyCode = event.keyCode;
+	const keyCode = event.keyCode; 
 
 	// backspace
 
@@ -366,18 +382,33 @@ function createText(text, location, render_background, reverse) {
     
     let num_rows = rows.length;
     
-    let txt_group = new THREE.Group();
+    txt_group = new THREE.Group();
     
     let total_width = 0;
     
-    for (let i = 0; i < rows.length; i++) {
+    textGeo = new TextGeometry( text, {
+
+        font: font,
+
+        size: size,
+        height: height,
+        curveSegments: curveSegments,
+
+        bevelThickness: bevelThickness,
+        bevelSize: bevelSize,
+        bevelEnabled: bevelEnabled
+
+    } );
+    textGeo.computeBoundingBox();
+    let box_height = textGeo.boundingBox.max.y - textGeo.boundingBox.min.y;
+    
+    for (let i = 0; i < num_rows; i++) {
         total_width = 0;
         const words = rows[i].split(" ");
         for (let j = 0; j < words.length; j++) {
             textGeo = new TextGeometry( words[j], {
 
 	            font: font,
-
 	            size: size,
 	            height: height,
 	            curveSegments: curveSegments,
@@ -404,13 +435,19 @@ function createText(text, location, render_background, reverse) {
         }
     }
 	
-	heights.push((heights[heights.length - 1] - (message_row_height * (num_rows + 1))) - 5) ;
-
+	heights.push(heights[heights.length - 1] - (box_height + message_row_height + message_row_height));
+	
+	if (add_flag && text == messages[messages.length - 1]) {
+	    console.log(num_rows);
+	    min_camera_y_position -= (box_height + message_row_height);
+	    camera.position.y -= (box_height + message_row_height);
+	    add_flag = false;
+    }
 	group.add( txt_group );
 	
 	
 	renderBackground(
-	    [total_width, message_row_height * num_rows],
+	    [total_width* 2, message_row_height * num_rows * 2],
 	    location,
 	    reverse,
 	    num_rows
@@ -418,13 +455,11 @@ function createText(text, location, render_background, reverse) {
 }
 
 function refreshText() {
-	
+	console.log(group.children.length);
 	for (let i = 0; i < group.children.length; i++) {
 	    group.children[i].clear();
 	}
 	group.clear();
-	
-	
 
 	if ( ! messages ) return;
 	
@@ -443,6 +478,9 @@ function onPointerMove( event ) {
 	if ( event.isPrimary === false ) return;
 
 	pointerX = event.clientX - windowHalfX;
+	
+	pointer.x = ( event.clientX / window.innerWidth ) * 2 - 1;
+	pointer.y = - ( event.clientY / window.innerHeight ) * 2 + 1;
 
 	targetRotation = targetRotationOnPointerDown + ( pointerX - pointerXOnPointerDown ) * 0.02;
 
@@ -450,15 +488,37 @@ function onPointerMove( event ) {
 
 function onScroll( event ) {
     if (event.isPrimary === false ) return;
+    if (camera.position.y > min_camera_y_position || event.deltaY < 0) {
     
-    for (let i = 0; i < strip_count; i++) {
-        strips[i].position.x += (strip_vels[i][0] - 7.5) * event.deltaY * 0.002 ;
-        strips[i].position.y += (strip_vels[i][1] - 12.5) * event.deltaY * 0.002 ;
-        strips[i].position.z += (strip_vels[i][2] - 2.5) * event.deltaY * 0.002 ;
-        strips[i].rotation.z += event.deltaY * 0.0002;
-    }
+        for (let i = 0; i < strip_count; i++) {
+            strips[i].position.x += (strip_vels[i][0] - 7.5) * event.deltaY * 0.002 ;
+            strips[i].position.y += (strip_vels[i][1] - 12.5) * event.deltaY * 0.002 ;
+            strips[i].position.z += (strip_vels[i][2] - 2.5) * event.deltaY * 0.002 ;
+            strips[i].rotation.z += event.deltaY * 0.0002;
+        }
     
-    camera.position.y -= event.deltaY * 0.2;    
+    
+        camera.position.y -= event.deltaY * 0.2; 
+    }   
+}
+
+function onClick( event ) {
+    ///if (event.isPrimary === false ) return;
+    
+    raycaster.setFromCamera( pointer, camera );
+
+	// calculate objects intersecting the picking ray
+	const intersects = raycaster.intersectObjects( scene.children );
+
+	for ( let i = 0; i < intersects.length; i ++ ) {
+	
+	    var audio = new Audio('boing-6222.mp3');
+        audio.play()
+
+		moving_arr.push(intersects[ i ].object);
+		velocity_arr.push([getRandomInt(0, 100, glob_rng) - 50, getRandomInt(0, 100, glob_rng) - 50, getRandomInt(0, 100, glob_rng) - 50]);
+        
+	}
 }
 
 //
@@ -524,6 +584,7 @@ function splitmix32(a) {
 function addMessage(message_text, sender) {
     message_sender.push(sender);
     messages.push(message_text);
+    add_flag = true;
 }
 
 const wrap = (s) => s.replace(
@@ -559,7 +620,7 @@ function restoreMaterial( obj ) {
 
 function generateStrips() {
     
-    strip_count = getRandomInt(5, 8, glob_rng);
+    strip_count = getRandomInt(500, 800, glob_rng);
     for (let i = 0; i < strip_count; i++) {
         strip_angles.push(getRandomInt(0, 100, glob_rng));
         strip_ys.push(getRandomInt(0, 1000, glob_rng));
@@ -572,6 +633,18 @@ function generateStrips() {
 function render() {
 
 	group.rotation.y = Math.min(Math.max(( targetRotation / 23 - group.rotation.y ) * 0.05, -0.1), 0.1);
+	
+	for ( let i = 0; i < velocity_arr.length; i++) {
+	    moving_arr[i].position.x += velocity_arr[i][0];
+	    moving_arr[i].position.y += velocity_arr[i][1];
+	    moving_arr[i].position.z += velocity_arr[i][2];
+	    
+	    velocity_arr[i][1] += g;
+	    
+	    moving_arr[i].rotation.x += velocity_arr[i][0] * 0.1;
+	    moving_arr[i].rotation.y += velocity_arr[i][1] * 0.1;
+	    moving_arr[i].rotation.z += velocity_arr[i][2] * 0.1;
+	}
 
     scene.traverse( darkenNonBloomed );
     bloom_composer.render();
@@ -584,9 +657,7 @@ function render() {
 
 // Player stuff
 
-const raycaster = new THREE.Raycaster();
-let char_pos = new THREE.Vector3(0, 0, 0);
-const pointer = new THREE.Vector3(0, 1, 0);
+
 
 function raycast_from_char() {
      
@@ -598,3 +669,4 @@ function raycast_from_char() {
 
 	}
 }
+
