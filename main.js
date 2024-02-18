@@ -17,6 +17,8 @@ const glob_rng = splitmix32(new Date().getTime());
 let sender_colour = 0x0000ff;
 let other_colour = 0xffffff;
 
+const SPACE_WIDTH = 10;
+
 let right_limit = window.innerWidth * 0.3;
 let left_limit = 100;
 
@@ -360,52 +362,58 @@ function loadFont() {
 
 function createText(text, location, render_background, reverse) {
 
-	textGeo = new TextGeometry( text, {
-
-		font: font,
-
-		size: size,
-		height: height,
-		curveSegments: curveSegments,
-
-		bevelThickness: bevelThickness,
-		bevelSize: bevelSize,
-		bevelEnabled: bevelEnabled
-
-	} );
-
-	textGeo.computeBoundingBox();
-	
-	let num_rows = getNumRows(text);
+    const rows = text.split("\n");
     
-    let box_width = textGeo.boundingBox.max.x - textGeo.boundingBox.min.x;
+    let num_rows = rows.length;
+    
+    let txt_group = new THREE.Group();
+    
+    let total_width = 0;
+    
+    for (let i = 0; i < rows.length; i++) {
+        total_width = 0;
+        const words = rows[i].split(" ");
+        for (let j = 0; j < words.length; j++) {
+            textGeo = new TextGeometry( words[j], {
 
-	const centerOffset = - 0.5 * ( box_width );
+	            font: font,
+
+	            size: size,
+	            height: height,
+	            curveSegments: curveSegments,
+
+	            bevelThickness: bevelThickness,
+	            bevelSize: bevelSize,
+	            bevelEnabled: bevelEnabled
+
+            } );
+            textGeo.computeBoundingBox();
+            let box_width = textGeo.boundingBox.max.x - textGeo.boundingBox.min.x;
+            
+            textMesh1 = new THREE.Mesh( textGeo, materials );
+            
+            textMesh1.position.x = location[0] + total_width;
+            textMesh1.position.y = location[1] - i * message_row_height;
+            textMesh1.position.z = location[2] - 18;
+
+            textMesh1.rotation.x = 0;
+            textMesh1.rotation.y = Math.PI * 2;
+            
+            total_width += SPACE_WIDTH + box_width;
+            txt_group.add(textMesh1);
+        }
+    }
 	
 	heights.push((heights[heights.length - 1] - (message_row_height * (num_rows + 1))) - 5) ;
 
-	textMesh1 = new THREE.Mesh( textGeo, materials );
-    
-    if (reverse) {
-        location[0] -= box_width;
-    }
-    
-	textMesh1.position.x = location[0];
-	textMesh1.position.y = location[1];
-	textMesh1.position.z = location[2] - 18;
-
-	textMesh1.rotation.x = 0;
-	textMesh1.rotation.y = Math.PI * 2;
-
-	group.add( textMesh1 );
-	
+	group.add( txt_group );
 	
 	
 	renderBackground(
-	    [box_width, message_row_height * num_rows],
+	    [total_width, message_row_height * num_rows],
 	    location,
 	    reverse,
-	    getNumRows(text)
+	    num_rows
 	)
 }
 
