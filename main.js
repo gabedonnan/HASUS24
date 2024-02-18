@@ -12,6 +12,25 @@ import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 
 THREE.Cache.enabled = true;
 
+
+const socket = new WebSocket("ws://localhost:6969");
+
+
+
+socket.addEventListener("open", (event) => {
+
+    for (let i = 0; i < messages.length; i++) {
+        if (message_sender[i] == 0) {
+            socket.send(messages[i]);
+        }
+    }
+});
+
+socket.addEventListener("message", (event) => {
+    addMessage(event.data, 1);
+});
+
+
 const glob_rng = splitmix32(new Date().getTime());
 
 const raycaster = new THREE.Raycaster();
@@ -326,11 +345,6 @@ function onDocumentKeyDown( event ) {
 	} else if ( keyCode == 13 && text.length != 0) { 
 	    event.preventDefault();
 	    addMessage(wrap(text), current_sender);
-	    if (current_sender == 0) {
-	        current_sender = 1;
-	    } else {
-	        current_sender = 0;
-	    }
 	    text = "";
 	    firstLetter = true;   
 	    refreshText();
@@ -584,6 +598,9 @@ function splitmix32(a) {
 function addMessage(message_text, sender) {
     message_sender.push(sender);
     messages.push(message_text);
+    if (sender == 0) {
+        socket.send(message_text);
+    }
     add_flag = true;
 }
 
@@ -620,7 +637,7 @@ function restoreMaterial( obj ) {
 
 function generateStrips() {
     
-    strip_count = getRandomInt(500, 800, glob_rng);
+    strip_count = getRandomInt(20, 30, glob_rng);
     for (let i = 0; i < strip_count; i++) {
         strip_angles.push(getRandomInt(0, 100, glob_rng));
         strip_ys.push(getRandomInt(0, 1000, glob_rng));
@@ -634,6 +651,13 @@ function render() {
 
 	group.rotation.y = Math.min(Math.max(( targetRotation / 23 - group.rotation.y ) * 0.05, -0.1), 0.1);
 	
+	for (let i = 0; i < strip_count; i++) {
+        strips[i].position.x -= Math.min(Math.max(( targetRotation / getRandomInt(10, 35, glob_rng) - group.rotation.y ) * 0.06, -0.1), 0.1);
+        strips[i].position.y -= Math.min(Math.max(( targetRotation / getRandomInt(10, 35, glob_rng) - group.rotation.y ) * 0.02, -0.1), 0.1);
+        strips[i].position.z -= Math.min(Math.max(( targetRotation / getRandomInt(10, 35, glob_rng) - group.rotation.y ) * 0.05, -0.1), 0.1);
+        strips[i].rotation.z -= Math.min(Math.max(( targetRotation / getRandomInt(10, 35, glob_rng) - group.rotation.y ) * 0.05, -0.1), 0.1);
+    }
+
 	for ( let i = 0; i < velocity_arr.length; i++) {
 	    moving_arr[i].position.x += velocity_arr[i][0];
 	    moving_arr[i].position.y += velocity_arr[i][1];
