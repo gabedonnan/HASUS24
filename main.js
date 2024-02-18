@@ -419,12 +419,9 @@ function createText(text, location, render_background, reverse) {
 
 function refreshText() {
 	
-	console.log(group.children);
-	
 	for (let i = 0; i < group.children.length; i++) {
 	    group.children[i].clear();
 	}
-	
 	group.clear();
 	
 	
@@ -496,7 +493,7 @@ function renderBackground(mesh_size, location, msg_sender, num_rows) {
             new THREE.MeshBasicMaterial( {color: getRandomInt(0x00000f, 0xffffff, rng), side: THREE.FrontSide} ) 
         );
         background.position.x = getRandomInt(location[0],location[0] + 0.5 * mesh_x, rng);
-        background.position.y = getRandomInt(location[1],location[1] + 0.5 * mesh_y, rng) - num_rows * message_row_height;
+        background.position.y = getRandomInt(location[1],location[1] + 0.5 * mesh_y, rng) - (num_rows - 1) * message_row_height;
         background.position.z = location[2] - 10 * getRandomInt(0, 40, rng);
 
         background.rotation.x = 0;
@@ -582,4 +579,22 @@ function render() {
     
     final_composer.render();
 
+}
+
+
+// Player stuff
+
+const raycaster = new THREE.Raycaster();
+let char_pos = new THREE.Vector3(0, 0, 0);
+const pointer = new THREE.Vector3(0, 1, 0);
+
+function raycast_from_char() {
+     
+    raycaster.set(char_pos, pointer);
+    const intersects = raycaster.intersectObjects( scene.children );
+    for ( let i = 0; i < intersects.length; i ++ ) {
+        
+		intersects[ i ].object.material.color.set( 0xff0000 );
+
+	}
 }
