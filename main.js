@@ -32,6 +32,8 @@ socket.addEventListener("message", (event) => {
 });
 
 
+let silly = [new Audio('boing-6222.mp3'), new Audio('baby-squeak-toy-2-183912.mp3'), new Audio('boing-box-01-39502.mp3'), new Audio('cartoon-yoink-1-183915.mp3'), new Audio('thump-and-grunt-85606.mp3')];
+
 const glob_rng = splitmix32(new Date().getTime());
 
 const raycaster = new THREE.Raycaster();
@@ -67,6 +69,7 @@ let strip_length = 10000;
 let strips = [];
 let explosion_counter = 1000;
 
+let plane;
 let camera, cameraTarget, scene, renderer;
 
 let group, textMesh1, textMesh2, textGeo, materials, background;
@@ -78,7 +81,7 @@ let firstLetter = true;
 
 let message_sender = [];
 
-let heights = [150];
+let heights = [150, 150];
 
 
 let scroll_location = 0;
@@ -176,7 +179,10 @@ function init() {
 
 	scene = new THREE.Scene();
 	scene.background = new THREE.Color( 0x000000 );
-	// scene.fog = new THREE.Fog( 0x000000, 250, 1400 );
+	//scene.fog = new THREE.Fog( 0xFF69B4, 250, 1400 );
+	
+	
+	
 
 	// LIGHTS
 
@@ -190,8 +196,8 @@ function init() {
 	scene.add( pointLight );
 
 	materials = [
-		new THREE.MeshNormalMaterial( { color: 0xffffff} ), // front
-		new THREE.MeshNormalMaterial( { color: 0xffffff } ) // side
+		new THREE.MeshNormalMaterial( ), // front
+		new THREE.MeshNormalMaterial( ) // side
 	];
 
 	group = new THREE.Group();
@@ -215,7 +221,7 @@ function init() {
 
 	container.style.touchAction = 'none';
 	document.addEventListener( 'pointermove', onPointerMove );
-	document.addEventListener( 'click', onClick );
+	document.addEventListener( 'mousemove', onClick );
 	document.addEventListener( 'wheel', onScroll );
 
 	document.addEventListener( 'keypress', onDocumentKeyPress );
@@ -446,13 +452,11 @@ function createText(text, location, render_background, reverse) {
             txt_group.add(textMesh1);
         }
     }
-	
-	heights.push(heights[heights.length - 1] - (box_height + message_row_height + message_row_height));
+	heights.push(heights[heights.length - 1] - (5 * message_row_height));
 	
 	if (add_flag && text == messages[messages.length - 1]) {
-	    console.log(num_rows);
-	    min_camera_y_position -= (box_height + message_row_height);
-	    camera.position.y -= (box_height + message_row_height);
+	    min_camera_y_position -= (5 * message_row_height);
+	    camera.position.y -= (5 * message_row_height);
 	    add_flag = false;
     }
 	group.add( txt_group );
@@ -517,19 +521,20 @@ function onScroll( event ) {
 function onClick( event ) {
     ///if (event.isPrimary === false ) return;
     
-    raycaster.setFromCamera( pointer, camera );
+    if (event.buttons === 1) {
+    
+        raycaster.setFromCamera( pointer, camera );
 
-	// calculate objects intersecting the picking ray
-	const intersects = raycaster.intersectObjects( scene.children );
+	    // calculate objects intersecting the picking ray
+	    const intersects = raycaster.intersectObjects( scene.children );
 
-	for ( let i = 0; i < intersects.length; i ++ ) {
-	
-	    var audio = new Audio('boing-6222.mp3');
-        audio.play()
+	    for ( let i = 0; i < intersects.length; i ++ ) {
+            var audio = silly[getRandomInt(0, silly.length, glob_rng)];
+            audio.play()    
 
-		moving_arr.push(intersects[ i ].object);
-		velocity_arr.push([getRandomInt(0, 100, glob_rng) - 50, getRandomInt(0, 100, glob_rng) - 50, getRandomInt(0, 100, glob_rng) - 50]);
-        
+	        moving_arr.push(intersects[ i ].object);
+	        velocity_arr.push([getRandomInt(0, 100, glob_rng) - 50, getRandomInt(0, 100, glob_rng) - 50, getRandomInt(0, 100, glob_rng) - 50]);  
+	    }
 	}
 }
 
@@ -596,7 +601,7 @@ function splitmix32(a) {
 function addMessage(message_text, sender) {
     message_sender.push(sender);
     messages.push(message_text);
-    if (sender == 0) {
+    if (sender == 0 && socket.connected) {
         socket.send(message_text);
     }
     add_flag = true;
