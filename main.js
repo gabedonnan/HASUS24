@@ -28,6 +28,7 @@ socket.addEventListener("open", (event) => {
 
 socket.addEventListener("message", (event) => {
     addMessage(event.data, 1);
+    refreshText();
 });
 
 
@@ -189,8 +190,8 @@ function init() {
 	scene.add( pointLight );
 
 	materials = [
-		new THREE.MeshPhongMaterial( { color: 0xffffff, flatShading: true } ), // front
-		new THREE.MeshPhongMaterial( { color: 0xffffff } ) // side
+		new THREE.MeshNormalMaterial( { color: 0xffffff} ), // front
+		new THREE.MeshNormalMaterial( { color: 0xffffff } ) // side
 	];
 
 	group = new THREE.Group();
@@ -338,7 +339,6 @@ function onDocumentKeyDown( event ) {
 		event.preventDefault();
 
 		text = text.substring( 0, text.length - 1 );
-		refreshText();
 
 		return false;
 
@@ -370,8 +370,6 @@ function onDocumentKeyPress( event ) {
 
 		const ch = String.fromCharCode( keyCode );
 		text += ch;
-
-		refreshText();
 
 	}
 
@@ -560,7 +558,7 @@ function renderBackground(mesh_size, location, msg_sender, num_rows) {
     
     let bg_group = new THREE.Group();
     
-    const num_bubbles = getRandomInt(8, 12, rng)
+    const num_bubbles = getRandomInt(10, 16, rng)
     for (let i = 0; i < num_bubbles; i++) {
         background = new THREE.Mesh(
             new THREE.CircleGeometry(getRandomInt(2, 18, rng), 32),
@@ -568,7 +566,7 @@ function renderBackground(mesh_size, location, msg_sender, num_rows) {
         );
         background.position.x = getRandomInt(location[0],location[0] + 0.5 * mesh_x, rng);
         background.position.y = getRandomInt(location[1],location[1] + 0.5 * mesh_y, rng) - (num_rows - 1) * message_row_height;
-        background.position.z = location[2] - 10 * getRandomInt(0, 40, rng);
+        background.position.z = location[2] - 10 * getRandomInt(0, 60, rng);
 
         background.rotation.x = 0;
         background.rotation.y = Math.PI * 2;
@@ -650,13 +648,6 @@ function generateStrips() {
 function render() {
 
 	group.rotation.y = Math.min(Math.max(( targetRotation / 23 - group.rotation.y ) * 0.05, -0.1), 0.1);
-	
-	for (let i = 0; i < strip_count; i++) {
-        strips[i].position.x -= Math.min(Math.max(( targetRotation / getRandomInt(10, 35, glob_rng) - group.rotation.y ) * 0.06, -0.1), 0.1);
-        strips[i].position.y -= Math.min(Math.max(( targetRotation / getRandomInt(10, 35, glob_rng) - group.rotation.y ) * 0.02, -0.1), 0.1);
-        strips[i].position.z -= Math.min(Math.max(( targetRotation / getRandomInt(10, 35, glob_rng) - group.rotation.y ) * 0.05, -0.1), 0.1);
-        strips[i].rotation.z -= Math.min(Math.max(( targetRotation / getRandomInt(10, 35, glob_rng) - group.rotation.y ) * 0.05, -0.1), 0.1);
-    }
 
 	for ( let i = 0; i < velocity_arr.length; i++) {
 	    moving_arr[i].position.x += velocity_arr[i][0];
