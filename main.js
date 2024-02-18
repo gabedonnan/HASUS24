@@ -13,7 +13,7 @@ import { GUI } from 'three/addons/libs/lil-gui.module.min.js';
 THREE.Cache.enabled = true;
 
 
-const socket = new WebSocket("ws://localhost:6969");
+const socket = new WebSocket("ws://10.1.107.150:6969");
 
 
 
